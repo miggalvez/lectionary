@@ -65,3 +65,7 @@ Each `liturgicalDay` object includes:
 - [romcal](https://github.com/romcal/romcal) - For generating the liturgical calendar and day metadata
 - [Bible Passage Reference Parser](https://github.com/openbibleinfo/Bible-Passage-Reference-Parser) - For parsing Bible references
 - [Cheerio](https://cheerio.js.org/) - For HTML parsing
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
