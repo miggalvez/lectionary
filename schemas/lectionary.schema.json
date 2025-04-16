@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "USCCB Lectionary Schema",
-  "description": "A schema for representing USCCB Lectionary readings (based on 1998 Roman Missal edition), using OSIS references.",
+  "description": "A schema for representing USCCB Lectionary readings (based on 1998 Roman Missal edition), using OSIS references and identifying specific Mass types (e.g., Vigil, Night, Day).",
   "type": "object",
   "properties": {
     "lectionaryTitle": {
@@ -12,7 +12,7 @@
     "schemaVersion": {
       "description": "Version of this JSON schema.",
       "type": "string",
-      "default": "1.1"
+      "default": "1.2"
     },
     "cycles": {
       "description": "Contains readings organized by liturgical cycle (Sundays A/B/C, Weekdays I/II).",
@@ -95,16 +95,20 @@
 
   "$defs": {
     "liturgicalDay": {
-      "description": "Represents a single liturgical celebration (day/feast) with its readings.",
+      "description": "Represents a single liturgical celebration or a specific Mass within a celebration (e.g., Christmas Vigil, Christmas Day Mass) with its readings.",
       "type": "object",
       "properties": {
         "identifier": {
-          "description": "A unique string identifier for this day/celebration (e.g., 'sunday_advent_1_a', 'saint_assumption_0815').",
+          "description": "A unique string identifier for this specific day/Mass entry (e.g., 'christmas_vigil_1224', 'christmas_day_1225', 'saint_assumption_0815').",
           "type": "string"
         },
         "name": {
-          "description": "Human-readable name of the day/celebration (e.g., 'First Sunday of Advent', 'Assumption of the Blessed Virgin Mary').",
+          "description": "Human-readable name of the day or specific Mass (e.g., 'Christmas: At the Vigil Mass', 'The Epiphany of the Lord').",
           "type": "string"
+        },
+        "romcalKey": {
+            "description": "Identifier key corresponding to the liturgical day in the romcal library (or similar). May be the same for different Mass types of the same feast.",
+            "type": ["string", "null"]
         },
         "season": {
           "description": "Liturgical season (e.g., 'Advent', 'Christmas', 'Lent', 'Triduum', 'Easter', 'Ordinary Time').",
@@ -121,26 +125,31 @@
           "enum": [null, "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         },
         "date": {
-          "description": "Fixed date for feasts/solemnities in MM-DD format (e.g., '08-15', '12-25').",
+          "description": "Fixed date for feasts/solemnities in MM-DD format (e.g., '08-15', '12-25'). Null for movable feasts.",
           "type": ["string", "null"],
           "pattern": "^(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
         },
         "rank": {
           "description": "Liturgical rank (e.g., 'Solemnity', 'Feast', 'Memorial', 'Optional Memorial', 'Feria', 'Sunday').",
           "type": ["string", "null"],
-          "enum": [null, "Solemnity", "Feast", "Memorial", "Optional Memorial", "Feria", "Sunday"]
+           "enum": [null, "Solemnity", "Feast", "Memorial", "Optional Memorial", "Feria", "Sunday"]
         },
-        "hasVigil": {
-          "description": "Indicates if this celebration has specific Vigil readings defined below.",
-          "type": "boolean",
-          "default": false
+        "massType": {
+          "description": "Specifies the type of Mass if multiple distinct Masses exist for the same feast (e.g., Vigil, Night, Dawn, Day for Christmas). Null if not applicable or just the standard 'Mass of the Day'.",
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "vigil",
+            "night",
+            "dawn",
+            "day",
+            "afternoon",
+            "evening"
+          ],
+          "default": null
         },
         "readings": {
-          "description": "The set of readings for the main Mass (Mass of the Day). Required.",
-          "$ref": "#/$defs/readingSet"
-        },
-        "vigilReadings": {
-          "description": "The set of readings for the Vigil Mass. Only present if 'hasVigil' is true.",
+          "description": "The set of readings for this specific liturgical day or Mass type.",
           "$ref": "#/$defs/readingSet"
         }
       },
@@ -162,7 +171,7 @@
           "items": { "$ref": "#/$defs/readingOption" }
         },
         "second_reading": {
-          "description": "Array of options for the Second Reading (often empty/null for weekdays).",
+          "description": "Array of options for the Second Reading (often empty array for weekdays).",
           "type": "array",
           "items": { "$ref": "#/$defs/readingOption" }
         },
@@ -184,20 +193,16 @@
       "description": "Represents a single reading option with its reference and optional notes.",
       "type": "object",
       "properties": {
-        "osis": {
+        "reference": {
           "description": "The biblical citation in OSIS format, potentially including !Part notation (e.g., 'Gen.1.1-Gen.2.2', 'Ps.23.1!b-Ps.23.6!c', '1Cor.1.3-9').",
           "type": "string"
         },
-        "reference": {
-          "description": "The original biblical citation as it appears in the lectionary (e.g., 'Genesis 1:1-2:2', 'Psalm 23:1b-6c', '1 Corinthians 1:3-9').",
-          "type": "string"
-        },
         "note": {
-          "description": "Optional clarifying note (e.g., 'short form', 'or', 'especially recommended').",
+          "description": "Optional clarifying note (e.g., 'short form', 'alternative/option', 'especially recommended').",
           "type": ["string", "null"]
         }
       },
-      "required": ["osis", "reference"]
+      "required": ["reference"]
     }
   }
-} 
+}
