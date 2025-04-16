@@ -241,6 +241,7 @@ function processReadingRow($, cells, date, number, dayText, firstReading, psalm,
         dayOfWeek: null,
         rank: null,
         isVigil: false,
+        hasVigil: false,  // Add hasVigil property
         identifier: null,
         readings: {
             first_reading: [],
@@ -301,6 +302,9 @@ function processReadingRow($, cells, date, number, dayText, firstReading, psalm,
     
     // Identify specific Christmas season feasts
     if (dayText.toLowerCase().includes('nativity of the lord') || dayText.toLowerCase().includes('christmas')) {
+        // The Nativity of the Lord (Christmas) has a vigil mass
+        readingInfo.hasVigil = true;
+        
         // Handle different masses for Christmas
         if (dayText.toLowerCase().includes('vigil')) {
             readingInfo.identifier = 'christmas_vigil';
@@ -646,7 +650,7 @@ async function main() {
                         dayOfWeek: romcalDay.calendar?.dayOfWeek || null,
                         date: romcalDay.date ? normalizeDate(romcalDay.date) : null,
                         rank: romcalDay.rankName || null,
-                        hasVigil: false,
+                        hasVigil: reading.hasVigil || false,
                         readings: {
                             first_reading: reading.readings.first_reading,
                             responsorial_psalm: reading.readings.responsorial_psalm,
