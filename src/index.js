@@ -9,6 +9,15 @@ import { GeneralRoman_En } from '@romcal/calendar.general-roman';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Helper function to normalize date to MM-DD format
+function normalizeDate(date) {
+    if (!date) return null;
+    // Remove any non-numeric characters and get last 4 digits (MMDD)
+    const cleaned = date.replace(/[^0-9]/g, '').slice(-4);
+    // Insert hyphen between MM and DD
+    return cleaned.slice(0, 2) + '-' + cleaned.slice(2);
+}
+
 // Initialize the Bible reference parser
 const bcv = new bcv_parser(lang);
 const translation = "nab"; // New American Bible
@@ -242,6 +251,78 @@ function extractReadingsFromHTML(htmlContent) {
     return readings;
 }
 
+// Helper function to find matching romcal day
+function findMatchingRomcalDay(romcalCalendar, date, season, weekNumber, dayOfWeek, cycle) {
+    console.log(`Looking for match:`, { date, season, weekNumber, dayOfWeek, cycle });
+    
+    // Normalize season name to match romcal format
+    const normalizedSeason = season.toUpperCase();
+    
+    // First try to find an exact match by season, week number, and cycle
+    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
+        const day = days[0]; // Get the primary liturgical day
+        
+        // Check if this is a Sunday (romcal uses 0 for Sunday)
+        if (day.calendar?.dayOfWeek === 0) {
+            // Check if the season and week match
+            const romcalSeason = day.seasons?.[0];
+            const romcalWeek = day.calendar?.weekOfSeason;
+            const romcalCycle = day.cycles?.sundayCycle;
+            
+            console.log(`Checking romcal day:`, {
+                date: romcalDate,
+                season: romcalSeason,
+                week: romcalWeek,
+                dayOfWeek: day.calendar?.dayOfWeek,
+                cycle: romcalCycle
+            });
+            
+            // Match based on season, week number, and cycle
+            if (romcalSeason && romcalWeek && 
+                romcalSeason === normalizedSeason &&
+                romcalWeek === parseInt(weekNumber) &&
+                romcalCycle === cycle) {
+                console.log(`Found exact match! ID: ${day.id}`);
+                return day;
+            }
+        }
+    }
+    
+    // If no exact match found, try to find the closest match by season and week number
+    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
+        const day = days[0];
+        if (day.calendar?.dayOfWeek === 0) {
+            const romcalSeason = day.seasons?.[0];
+            const romcalWeek = day.calendar?.weekOfSeason;
+            
+            // Match based on season and week number only
+            if (romcalSeason && romcalWeek && 
+                romcalSeason === normalizedSeason &&
+                romcalWeek === parseInt(weekNumber)) {
+                console.log(`Found partial match by season and week! ID: ${day.id}`);
+                return day;
+            }
+        }
+    }
+    
+    // If still no match, try to find the closest match by season only
+    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
+        const day = days[0];
+        if (day.calendar?.dayOfWeek === 0) {
+            const romcalSeason = day.seasons?.[0];
+            
+            // Match based on season only
+            if (romcalSeason && romcalSeason === normalizedSeason) {
+                console.log(`Found partial match by season! ID: ${day.id}`);
+                return day;
+            }
+        }
+    }
+    
+    console.log('No match found');
+    return null;
+}
+
 async function main() {
     try {
         const outputPath = path.join(__dirname, '..', 'output', 'lectionary.json');
@@ -261,56 +342,7 @@ async function main() {
             massesForTheDead: []
         };
 
-        // Process HTML files with readings first
-        const htmlFiles = fs.readdirSync(path.join(__dirname, '..', 'input'))
-            .filter(file => file.endsWith('.html'));
-
-        // Store all readings by cycle
-        const allReadings = { A: [], B: [], C: [] };
-        
-        for (const file of htmlFiles) {
-            console.log(`Processing readings from ${file}...`);
-            const htmlContent = fs.readFileSync(path.join(__dirname, '..', 'input', file), 'utf-8');
-            const readings = extractReadingsFromHTML(htmlContent);
-            
-            // Merge readings by cycle
-            for (const [cycle, cycleReadings] of Object.entries(readings)) {
-                console.log(`Adding readings for cycle ${cycle}:`, cycleReadings.length);
-                allReadings[cycle].push(...cycleReadings);
-            }
-        }
-
-        console.log('All readings collected:', {
-            A: allReadings.A.length,
-            B: allReadings.B.length,
-            C: allReadings.C.length
-        });
-
-        // Add the readings directly to the output structure
-        for (const [cycle, readings] of Object.entries(allReadings)) {
-            for (const reading of readings) {
-                const liturgicalDay = {
-                    identifier: `${reading.season.toLowerCase()}_${reading.weekNumber}_${reading.dayOfWeek.toLowerCase()}`,
-                    name: `${reading.weekNumber}${getOrdinalSuffix(reading.weekNumber)} Sunday of ${reading.season}`,
-                    season: reading.season,
-                    week: reading.weekNumber,
-                    dayOfWeek: reading.dayOfWeek,
-                    date: reading.date,
-                    rank: "Sunday",
-                    hasVigil: false,
-                    readings: {
-                        first_reading: reading.readings.first_reading,
-                        responsorial_psalm: reading.readings.responsorial_psalm,
-                        second_reading: reading.readings.second_reading,
-                        gospel_acclamation: reading.readings.gospel_acclamation,
-                        gospel: reading.readings.gospel
-                    }
-                };
-                output.cycles.sundays[cycle].push(liturgicalDay);
-            }
-        }
-
-        // Initialize romcal
+        // Initialize romcal first
         const romcal = new Romcal({
             scope: 'liturgical',
             locale: 'en',
@@ -323,56 +355,103 @@ async function main() {
         // Generate calendar for a fixed year (2025)
         console.log('Generating liturgical calendar...');
         const calendar = await romcal.generateCalendar(2025);
+        console.log('Romcal calendar generated with', Object.keys(calendar).length, 'days');
 
-        // Helper function to normalize date to MM-DD format
-        function normalizeDate(date) {
-            if (!date) return null;
-            // Remove any non-numeric characters and get last 4 digits (MMDD)
-            const cleaned = date.replace(/[^0-9]/g, '').slice(-4);
-            // Insert hyphen between MM and DD
-            return cleaned.slice(0, 2) + '-' + cleaned.slice(2);
+        // Log some sample days from the calendar
+        console.log('Sample romcal days:');
+        Object.entries(calendar).slice(0, 5).forEach(([date, days]) => {
+            const day = days[0];
+            console.log({
+                date,
+                id: day.id,
+                name: day.name,
+                season: day.seasons?.[0],
+                week: day.calendar?.weekOfSeason,
+                dayOfWeek: day.calendar?.dayOfWeek
+            });
+        });
+
+        // Process HTML files with readings
+        const inputDir = path.join(__dirname, '..', 'input');
+        console.log('Looking for HTML files in:', inputDir);
+        const htmlFiles = fs.readdirSync(inputDir)
+            .filter(file => file.endsWith('.html'));
+        console.log('Found HTML files:', htmlFiles);
+
+        if (htmlFiles.length === 0) {
+            console.error('No HTML files found in input directory');
+            return;
         }
 
-        // Helper function to get ordinal suffix
-        function getOrdinalSuffix(num) {
-            const j = num % 10,
-                  k = num % 100;
-            if (j == 1 && k != 11) {
-                return "st";
-            }
-            if (j == 2 && k != 12) {
-                return "nd";
-            }
-            if (j == 3 && k != 13) {
-                return "rd";
-            }
-            return "th";
-        }
-
-        // Helper function to convert romcal day to our schema format
-        function createLiturgicalDay(romcalDay) {
-            const liturgicalDay = {
-                identifier: romcalDay.id,
-                name: romcalDay.name,
-                season: romcalDay.seasons?.[0] || null,
-                week: romcalDay.calendar?.weekOfSeason || null,
-                dayOfWeek: romcalDay.calendar?.dayOfWeek || null,
-                date: romcalDay.date ? normalizeDate(romcalDay.date) : null,
-                rank: romcalDay.rankName || null,
-                hasVigil: false,
-                readings: {
-                    first_reading: [],
-                    responsorial_psalm: [],
-                    second_reading: [],
-                    gospel_acclamation: [],
-                    gospel: []
-                }
-            };
+        // Store all readings by cycle
+        const allReadings = { A: [], B: [], C: [] };
+        
+        for (const file of htmlFiles) {
+            console.log(`Processing readings from ${file}...`);
+            const htmlContent = fs.readFileSync(path.join(inputDir, file), 'utf-8');
+            const readings = extractReadingsFromHTML(htmlContent);
+            console.log(`Extracted readings from ${file}:`, readings);
             
-            return liturgicalDay;
+            // Merge readings by cycle
+            for (const [cycle, cycleReadings] of Object.entries(readings)) {
+                console.log(`Adding readings for cycle ${cycle}:`, cycleReadings.length);
+                allReadings[cycle].push(...cycleReadings);
+            }
+        }
+
+        console.log('Total readings collected:', {
+            A: allReadings.A.length,
+            B: allReadings.B.length,
+            C: allReadings.C.length
+        });
+
+        // Add the readings to the output structure, using romcal identifiers
+        for (const [cycle, readings] of Object.entries(allReadings)) {
+            console.log(`Processing ${readings.length} readings for cycle ${cycle}`);
+            for (const reading of readings) {
+                // Find matching romcal day
+                const romcalDay = findMatchingRomcalDay(
+                    calendar,
+                    reading.date,
+                    reading.season,
+                    reading.weekNumber,
+                    reading.dayOfWeek,
+                    cycle
+                );
+
+                if (romcalDay) {
+                    const liturgicalDay = {
+                        identifier: romcalDay.id,
+                        name: romcalDay.name,
+                        season: romcalDay.seasons?.[0] || null,
+                        week: romcalDay.calendar?.weekOfSeason || null,
+                        dayOfWeek: romcalDay.calendar?.dayOfWeek || null,
+                        date: romcalDay.date ? normalizeDate(romcalDay.date) : null,
+                        rank: romcalDay.rankName || null,
+                        hasVigil: false,
+                        readings: {
+                            first_reading: reading.readings.first_reading,
+                            responsorial_psalm: reading.readings.responsorial_psalm,
+                            second_reading: reading.readings.second_reading,
+                            gospel_acclamation: reading.readings.gospel_acclamation,
+                            gospel: reading.readings.gospel
+                        }
+                    };
+                    output.cycles.sundays[cycle].push(liturgicalDay);
+                    console.log(`Added liturgical day with ID: ${liturgicalDay.identifier}`);
+                } else {
+                    console.warn(`Could not find matching romcal day for:`, {
+                        date: reading.date,
+                        season: reading.season,
+                        week: reading.weekNumber,
+                        dayOfWeek: reading.dayOfWeek
+                    });
+                }
+            }
         }
 
         // Process each day in the calendar to add non-Sunday celebrations
+        console.log('Processing non-Sunday celebrations...');
         for (const [date, days] of Object.entries(calendar)) {
             const day = days[0]; // Get the primary liturgical day
             
@@ -381,17 +460,28 @@ async function main() {
                 const cycle = day.cycles.weekdayCycle;
                 const liturgicalDay = createLiturgicalDay(day);
                 output.cycles.weekdays[cycle].push(liturgicalDay);
+                console.log(`Added weekday with ID: ${liturgicalDay.identifier}`);
                 
             } else if (day.fromCalendarId === 'properOfSaints') {
-                output.properOfSaints.push(createLiturgicalDay(day));
+                const liturgicalDay = createLiturgicalDay(day);
+                output.properOfSaints.push(liturgicalDay);
+                console.log(`Added proper of saints with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'commons') {
-                output.commons.push(createLiturgicalDay(day));
+                const liturgicalDay = createLiturgicalDay(day);
+                output.commons.push(liturgicalDay);
+                console.log(`Added common with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'ritualMasses') {
-                output.ritualMasses.push(createLiturgicalDay(day));
+                const liturgicalDay = createLiturgicalDay(day);
+                output.ritualMasses.push(liturgicalDay);
+                console.log(`Added ritual mass with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'votiveMasses') {
-                output.votiveMasses.push(createLiturgicalDay(day));
+                const liturgicalDay = createLiturgicalDay(day);
+                output.votiveMasses.push(liturgicalDay);
+                console.log(`Added votive mass with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'massesForTheDead') {
-                output.massesForTheDead.push(createLiturgicalDay(day));
+                const liturgicalDay = createLiturgicalDay(day);
+                output.massesForTheDead.push(liturgicalDay);
+                console.log(`Added mass for the dead with ID: ${liturgicalDay.identifier}`);
             }
         }
 
