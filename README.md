@@ -2,6 +2,10 @@
 
 This tool processes HTML files containing tables of Bible references and converts them into a structured JSON format, matching each set of readings to the correct liturgical day using the [romcal](https://github.com/romcal/romcal) library for the liturgical calendar.
 
+## Source of HTML Files
+
+The HTML files processed by this tool are taken from [https://catholic-resources.org/Lectionary/1998USL.htm](https://catholic-resources.org/Lectionary/1998USL.htm).
+
 ## Features
 
 - Extracts tables from HTML files in the `input` directory
