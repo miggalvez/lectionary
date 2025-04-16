@@ -176,87 +176,300 @@ function extractReadingsFromHTML(htmlContent) {
         // Find all rows in the table
         $(table).find('tr').each((rowIndex, row) => {
             const cells = $(row).find('td');
-            if (cells.length >= 7) { // Weekday readings have 7 columns
+            if (cells.length >= 7) { // Readings tables have at least 7 columns
                 const date = $(cells[0]).text().trim();
                 const number = $(cells[1]).text().trim();
                 const dayText = $(cells[2]).text().trim();
                 const firstReading = $(cells[3]).text().trim();
                 const psalm = $(cells[4]).text().trim();
                 const secondReading = $(cells[5]).text().trim();
-                const gospel = $(cells[7]).text().trim() || $(cells[6]).text().trim(); // Try column 7 first, then 6
-                const alleluia = $(cells[6]).text().trim(); // Column 6 is alleluia verse
+                const alleluia = $(cells[6]).text().trim();
+                const gospel = cells.length >= 8 ? $(cells[7]).text().trim() : "";
 
-                console.log('Processing row:', { date, dayText, firstReading, psalm, secondReading, alleluia, gospel });
+                console.log('Processing row:', { date, number, dayText, firstReading, psalm, secondReading, alleluia, gospel });
 
-                // Extract cycle from dayText (e.g., "1st Sunday of Advent - A")
-                const cycleMatch = dayText.match(/- ([ABC])$/i);
-                const cycle = cycleMatch ? cycleMatch[1].toUpperCase() : null;
+                // Skip header rows or empty rows
+                if (rowIndex === 0 || !dayText || dayText.includes('Sunday or Feast - Year')) {
+                    console.log('Skipping header row');
+                    return;
+                }
 
-                // Extract the day name and week (e.g., "1st Sunday of Advent")
-                const match = dayText.match(/(\d+)(?:st|nd|rd|th)\s+(?:Week\s+of\s+)?(\w+)\s+of\s+(\w+)/i);
-                if (match) {
-                    const [_, weekNumber, dayType, season] = match;
-                    console.log('Matched:', { weekNumber, dayType, season, cycle });
-                    
-                    // Create a unique identifier for this day
-                    const identifier = `${season.toLowerCase()}_${weekNumber}_${dayType.toLowerCase()}`;
-                    
-                    // Format the date to MM-DD
-                    const [month, day] = date.split('/');
-                    const formattedDate = `${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-                    
-                    // Create the reading set
-                    const readingSet = {
-                        date: formattedDate,
-                        cycle: cycle || 'A', // Default to Year A if no cycle specified
-                        weekNumber: parseInt(weekNumber),
-                        season: season,
-                        dayOfWeek: dayType,
-                        readings: {
-                            first_reading: firstReading ? [{ 
-                                osis: processReference(firstReading).osis,
-                                reference: firstReading 
-                            }] : [],
-                            responsorial_psalm: psalm ? [{ 
-                                osis: processReference(psalm).osis,
-                                reference: psalm 
-                            }] : [],
-                            second_reading: secondReading ? [{ 
-                                osis: processReference(secondReading).osis,
-                                reference: secondReading 
-                            }] : [],
-                            gospel_acclamation: alleluia ? [{ 
-                                osis: processReference(alleluia).osis,
-                                reference: alleluia 
-                            }] : [],
-                            gospel: gospel ? [{ 
-                                osis: processReference(gospel).osis,
-                                reference: gospel 
-                            }] : []
-                        }
-                    };
-
-                    if (!readings[cycle || 'A']) {
-                        readings[cycle || 'A'] = [];
+                // Extract cycle from dayText
+                let cycle = null;
+                
+                // First try specific ABC pattern at the end like "- ABC"
+                const cycleEndMatch = dayText.match(/- ([ABC]+)$/i);
+                if (cycleEndMatch) {
+                    cycle = cycleEndMatch[1].toUpperCase();
+                } 
+                // Then try formats like "ABC" within the text
+                else {
+                    const cycleWithinMatch = dayText.match(/\b([ABC]+)\b/i);
+                    if (cycleWithinMatch) {
+                        cycle = cycleWithinMatch[1].toUpperCase();
                     }
-                    readings[cycle || 'A'].push(readingSet);
+                }
+
+                // Handle special cases like "ABC" (applies to all cycles)
+                if (cycle === 'ABC') {
+                    // Create one entry each for A, B, and C
+                    ['A', 'B', 'C'].forEach(singleCycle => {
+                        processReadingRow($, cells, date, number, dayText, firstReading, psalm, secondReading, alleluia, gospel, singleCycle, readings);
+                    });
                 } else {
-                    console.log('No match for:', dayText);
+                    // Process with the detected cycle or null
+                    processReadingRow($, cells, date, number, dayText, firstReading, psalm, secondReading, alleluia, gospel, cycle, readings);
                 }
             }
         });
     });
 
-    console.log('Extracted readings:', JSON.stringify(readings, null, 2));
     return readings;
 }
 
+function processReadingRow($, cells, date, number, dayText, firstReading, psalm, secondReading, alleluia, gospel, cycle, readings) {
+    // Default to cycle A if not specified
+    cycle = cycle || 'A'; 
+    
+    // Create object to store information about this reading
+    let readingInfo = {
+        date: null,
+        feastName: null,
+        cycle: cycle,
+        weekNumber: null,
+        season: null,
+        dayOfWeek: null,
+        rank: null,
+        isVigil: false,
+        identifier: null,
+        readings: {
+            first_reading: [],
+            responsorial_psalm: [],
+            second_reading: [],
+            gospel_acclamation: [],
+            gospel: []
+        }
+    };
+    
+    // Process the date (handle formats like "12/24/24")
+    if (date && date !== 'x') {
+        const dateMatch = date.match(/(\d+)\/(\d+)\/\d+/);
+        if (dateMatch) {
+            const month = dateMatch[1].padStart(2, '0');
+            const day = dateMatch[2].padStart(2, '0');
+            readingInfo.date = `${month}-${day}`;
+        }
+    }
+
+    // Extract feast information - remove any annotations/notes in brackets
+    const cleanDayText = dayText.replace(/\[(.*?)\]/g, '').trim();
+    const feastMatch = cleanDayText.match(/([^-:]+?)(?:\s*-\s*[ABC]+|\s*\(|$)/);
+    if (feastMatch) {
+        readingInfo.feastName = feastMatch[1].trim();
+    }
+    
+    // Check if it's a Solemnity, Feast or other special day
+    if (dayText.toLowerCase().includes('solemnity')) {
+        readingInfo.rank = 'Solemnity';
+    } else if (dayText.toLowerCase().includes('feast')) {
+        readingInfo.rank = 'Feast';
+    }
+
+    // Determine season based on context
+    if (dayText.toLowerCase().includes('advent')) {
+        readingInfo.season = 'ADVENT';
+        
+        // Extract week number for Advent Sundays
+        const weekMatch = dayText.match(/(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+Advent/i);
+        if (weekMatch) {
+            readingInfo.weekNumber = parseInt(weekMatch[1]);
+            readingInfo.dayOfWeek = 'Sunday';
+        }
+    } else if (dayText.toLowerCase().includes('christmas') || 
+              dayText.toLowerCase().includes('nativity') ||
+              dayText.toLowerCase().includes('holy family') ||
+              dayText.toLowerCase().includes('mother of god') ||
+              dayText.toLowerCase().includes('epiphany') ||
+              dayText.toLowerCase().includes('baptism of the lord')) {
+        readingInfo.season = 'CHRISTMAS_TIME';
+    }
+    
+    // Check for vigil masses or other special mass times
+    if (dayText.toLowerCase().includes('vigil')) {
+        readingInfo.isVigil = true;
+    }
+    
+    // Identify specific Christmas season feasts
+    if (dayText.toLowerCase().includes('nativity of the lord') || dayText.toLowerCase().includes('christmas')) {
+        // Handle different masses for Christmas
+        if (dayText.toLowerCase().includes('vigil')) {
+            readingInfo.identifier = 'christmas_vigil';
+        } else if (dayText.toLowerCase().includes('night')) {
+            readingInfo.identifier = 'christmas_night';
+        } else if (dayText.toLowerCase().includes('dawn')) {
+            readingInfo.identifier = 'christmas_dawn';
+        } else if (dayText.toLowerCase().includes('day')) {
+            readingInfo.identifier = 'christmas_day';
+        } else {
+            readingInfo.identifier = 'christmas';
+        }
+    } 
+    else if (dayText.toLowerCase().includes('holy family')) {
+        readingInfo.identifier = 'holy_family';
+    }
+    else if (dayText.toLowerCase().includes('mary, the mother of god') || dayText.toLowerCase().includes('mother of god')) {
+        readingInfo.identifier = 'mary_mother_of_god';
+    }
+    else if (dayText.toLowerCase().includes('epiphany')) {
+        readingInfo.identifier = 'epiphany';
+    }
+    else if (dayText.toLowerCase().includes('baptism of the lord')) {
+        readingInfo.identifier = 'baptism_of_the_lord';
+    }
+    
+    // Process readings and add them to the appropriate data structures
+    if (firstReading && firstReading !== '(no bibl. ref.)') {
+        // Strip out annotations like "- Vg (diff)" or "(new)"
+        const cleanReference = firstReading.replace(/\s*-\s*Vg.*|\(.*?\)/g, '').trim();
+        const processed = processReference(cleanReference);
+        if (processed) {
+            readingInfo.readings.first_reading.push({
+                osis: processed.osis,
+                reference: cleanReference
+            });
+        }
+    }
+    
+    if (psalm && psalm !== '(no bibl. ref.)') {
+        const cleanReference = psalm.replace(/\s*\(.*?\)/g, '').trim();
+        const processed = processReference(cleanReference);
+        if (processed) {
+            readingInfo.readings.responsorial_psalm.push({
+                osis: processed.osis,
+                reference: cleanReference
+            });
+        }
+    }
+    
+    if (secondReading && secondReading !== '(no bibl. ref.)') {
+        // Handle multiple reading options separated by "or"
+        const options = secondReading.split(/\s+or\s+/i);
+        for (const option of options) {
+            const cleanReference = option.replace(/\s*\(.*?\)/g, '').trim();
+            if (cleanReference) {
+                const processed = processReference(cleanReference);
+                if (processed) {
+                    readingInfo.readings.second_reading.push({
+                        osis: processed.osis,
+                        reference: cleanReference
+                    });
+                }
+            }
+        }
+    }
+    
+    if (alleluia && alleluia !== '(no bibl. ref.)') {
+        const cleanReference = alleluia.replace(/\s*\(.*?\)/g, '').trim();
+        const processed = processReference(cleanReference);
+        if (processed) {
+            readingInfo.readings.gospel_acclamation.push({
+                osis: processed.osis,
+                reference: cleanReference
+            });
+        }
+    }
+    
+    if (gospel && gospel !== '(no bibl. ref.)') {
+        // Look for alternative readings with "or" in the text
+        const gospelOptions = gospel.split(/\s+or\s+/i);
+        
+        for (const option of gospelOptions) {
+            const cleanReference = option.replace(/\s*\(.*?\)/g, '').trim();
+            if (cleanReference) {
+                const processed = processReference(cleanReference);
+                if (processed) {
+                    readingInfo.readings.gospel.push({
+                        osis: processed.osis,
+                        reference: cleanReference
+                    });
+                }
+            }
+        }
+    }
+
+    console.log('Processed reading row:', { 
+        feastName: readingInfo.feastName, 
+        date: readingInfo.date,
+        identifier: readingInfo.identifier,
+        season: readingInfo.season,
+        cycle: cycle 
+    });
+
+    // Initialize the cycle array if needed
+    if (!readings[cycle]) {
+        readings[cycle] = [];
+    }
+    
+    // Add the reading data to the appropriate cycle
+    readings[cycle].push(readingInfo);
+}
+
 // Helper function to find matching romcal day
-function findMatchingRomcalDay(romcalCalendar, date, season, weekNumber, dayOfWeek, cycle) {
-    console.log(`Looking for match:`, { date, season, weekNumber, dayOfWeek, cycle });
+function findMatchingRomcalDay(romcalCalendar, date, season, weekNumber, dayOfWeek, cycle, identifier) {
+    console.log(`Looking for match:`, { date, season, weekNumber, dayOfWeek, cycle, identifier });
+    
+    // If we have a specific identifier for a feast, try to match it directly
+    if (identifier) {
+        // Map our identifiers to romcal IDs
+        const idMap = {
+            'christmas_vigil': 'christmas_vigil',
+            'christmas_night': 'christmas_1',
+            'christmas_dawn': 'christmas_2',
+            'christmas_day': 'christmas_3',
+            'christmas': 'christmas',
+            'holy_family': 'holy_family',
+            'mary_mother_of_god': 'mary_mother_of_god',
+            'epiphany': 'epiphany',
+            'baptism_of_the_lord': 'baptism_of_the_lord'
+        };
+        
+        const romcalId = idMap[identifier];
+        if (romcalId) {
+            // Search for this ID in the calendar
+            for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
+                const day = days[0];
+                
+                // Match by ID
+                if (day.id === romcalId || day.id.includes(romcalId)) {
+                    console.log(`Found direct match by identifier! ID: ${day.id}`);
+                    return day;
+                }
+            }
+        }
+    }
+    
+    // If we have a date, try to match by date (helpful for fixed-date feasts)
+    if (date) {
+        // Format the date to match romcal format (YYYY-MM-DD)
+        const dateParts = date.split('-');
+        if (dateParts.length === 2) {
+            const month = dateParts[0];
+            const day = dateParts[1];
+            const year = '2025'; // The year we're using for the calendar
+            
+            const formattedDate = `${year}-${month}-${day}`;
+            
+            // Check if this date exists in the calendar
+            if (romcalCalendar[formattedDate]) {
+                const romcalDay = romcalCalendar[formattedDate][0];
+                console.log(`Found match by date! ID: ${romcalDay.id}`);
+                return romcalDay;
+            }
+        }
+    }
     
     // Normalize season name to match romcal format
-    const normalizedSeason = season.toUpperCase();
+    const normalizedSeason = season ? season.toUpperCase() : null;
     
     // First try to find an exact match by season, week number, and cycle
     for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
@@ -278,7 +491,7 @@ function findMatchingRomcalDay(romcalCalendar, date, season, weekNumber, dayOfWe
             });
             
             // Match based on season, week number, and cycle
-            if (romcalSeason && romcalWeek && 
+            if (romcalSeason && romcalWeek && normalizedSeason && 
                 romcalSeason === normalizedSeason &&
                 romcalWeek === parseInt(weekNumber) &&
                 romcalCycle === cycle) {
@@ -288,33 +501,37 @@ function findMatchingRomcalDay(romcalCalendar, date, season, weekNumber, dayOfWe
         }
     }
     
-    // If no exact match found, try to find the closest match by season and week number
-    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
-        const day = days[0];
-        if (day.calendar?.dayOfWeek === 0) {
-            const romcalSeason = day.seasons?.[0];
-            const romcalWeek = day.calendar?.weekOfSeason;
-            
-            // Match based on season and week number only
-            if (romcalSeason && romcalWeek && 
-                romcalSeason === normalizedSeason &&
-                romcalWeek === parseInt(weekNumber)) {
-                console.log(`Found partial match by season and week! ID: ${day.id}`);
-                return day;
+    // If no exact match found but we have a season, try to find the closest match
+    if (normalizedSeason) {
+        // Try to find match by season and week number
+        for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
+            const day = days[0];
+            if (day.calendar?.dayOfWeek === 0) {
+                const romcalSeason = day.seasons?.[0];
+                const romcalWeek = day.calendar?.weekOfSeason;
+                
+                // Match based on season and week number only
+                if (romcalSeason === normalizedSeason &&
+                    romcalWeek === parseInt(weekNumber)) {
+                    console.log(`Found partial match by season and week! ID: ${day.id}`);
+                    return day;
+                }
             }
-        }
-    }
-    
-    // If still no match, try to find the closest match by season only
-    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
-        const day = days[0];
-        if (day.calendar?.dayOfWeek === 0) {
-            const romcalSeason = day.seasons?.[0];
-            
-            // Match based on season only
-            if (romcalSeason && romcalSeason === normalizedSeason) {
-                console.log(`Found partial match by season! ID: ${day.id}`);
-                return day;
+        
+            // If still no match, try to find match by name and season
+            for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
+                const day = days[0];
+                const romcalSeason = day.seasons?.[0];
+                
+                // If the season matches and the name contains our feast name (if provided)
+                if (romcalSeason === normalizedSeason && 
+                    (identifier && day.id.toLowerCase().includes(identifier.toLowerCase()))) {
+                    console.log(`Found match by season and name! ID: ${day.id}`);
+                    return day;
+                } else if (romcalSeason === normalizedSeason) {
+                    console.log(`Found partial match by season! ID: ${day.id}`);
+                    return day;
+                }
             }
         }
     }
@@ -416,7 +633,8 @@ async function main() {
                     reading.season,
                     reading.weekNumber,
                     reading.dayOfWeek,
-                    cycle
+                    cycle,
+                    reading.identifier
                 );
 
                 if (romcalDay) {
