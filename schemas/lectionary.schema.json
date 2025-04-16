@@ -1,0 +1,203 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "USCCB Lectionary Schema",
+  "description": "A schema for representing USCCB Lectionary readings (based on 1998 Roman Missal edition), using OSIS references.",
+  "type": "object",
+  "properties": {
+    "lectionaryTitle": {
+      "description": "Title of the Lectionary represented.",
+      "type": "string",
+      "default": "USCCB Lectionary (based on 1998)"
+    },
+    "schemaVersion": {
+      "description": "Version of this JSON schema.",
+      "type": "string",
+      "default": "1.1"
+    },
+    "cycles": {
+      "description": "Contains readings organized by liturgical cycle (Sundays A/B/C, Weekdays I/II).",
+      "type": "object",
+      "properties": {
+        "sundays": {
+          "description": "Readings for Sunday cycles.",
+          "type": "object",
+          "properties": {
+            "A": {
+              "description": "Array of liturgical days for Sunday Cycle A.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/liturgicalDay" }
+            },
+            "B": {
+              "description": "Array of liturgical days for Sunday Cycle B.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/liturgicalDay" }
+            },
+            "C": {
+              "description": "Array of liturgical days for Sunday Cycle C.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/liturgicalDay" }
+            }
+          },
+          "required": ["A", "B", "C"]
+        },
+        "weekdays": {
+          "description": "Readings for weekday cycles.",
+          "type": "object",
+          "properties": {
+            "I": {
+              "description": "Array of liturgical days for Weekday Year I.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/liturgicalDay" }
+            },
+            "II": {
+              "description": "Array of liturgical days for Weekday Year II.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/liturgicalDay" }
+            }
+          },
+          "required": ["I", "II"]
+        }
+      },
+      "required": ["sundays", "weekdays"]
+    },
+    "properOfSaints": {
+      "description": "Array of liturgical days for the Proper of Saints (fixed dates).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/liturgicalDay" }
+    },
+    "commons": {
+      "description": "Array of liturgical days/reading sets for Common Masses.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/liturgicalDay" }
+    },
+    "ritualMasses": {
+      "description": "Array of liturgical days/reading sets for Ritual Masses.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/liturgicalDay" }
+    },
+    "votiveMasses": {
+      "description": "Array of liturgical days/reading sets for Votive Masses.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/liturgicalDay" }
+    },
+    "massesForTheDead": {
+      "description": "Array of liturgical days/reading sets for Masses for the Dead.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/liturgicalDay" }
+    }
+  },
+  "required": [
+    "lectionaryTitle",
+    "schemaVersion",
+    "cycles",
+    "properOfSaints"
+  ],
+
+  "$defs": {
+    "liturgicalDay": {
+      "description": "Represents a single liturgical celebration (day/feast) with its readings.",
+      "type": "object",
+      "properties": {
+        "identifier": {
+          "description": "A unique string identifier for this day/celebration (e.g., 'sunday_advent_1_a', 'saint_assumption_0815').",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable name of the day/celebration (e.g., 'First Sunday of Advent', 'Assumption of the Blessed Virgin Mary').",
+          "type": "string"
+        },
+        "season": {
+          "description": "Liturgical season (e.g., 'Advent', 'Christmas', 'Lent', 'Triduum', 'Easter', 'Ordinary Time').",
+          "type": ["string", "null"]
+        },
+        "week": {
+          "description": "Week number within the season (e.g., 1, 15, 34).",
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "dayOfWeek": {
+          "description": "Day of the week (e.g., 'Sunday', 'Monday').",
+          "type": ["string", "null"],
+          "enum": [null, "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        },
+        "date": {
+          "description": "Fixed date for feasts/solemnities in MM-DD format (e.g., '08-15', '12-25').",
+          "type": ["string", "null"],
+          "pattern": "^(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+        },
+        "rank": {
+          "description": "Liturgical rank (e.g., 'Solemnity', 'Feast', 'Memorial', 'Optional Memorial', 'Feria', 'Sunday').",
+          "type": ["string", "null"],
+          "enum": [null, "Solemnity", "Feast", "Memorial", "Optional Memorial", "Feria", "Sunday"]
+        },
+        "hasVigil": {
+          "description": "Indicates if this celebration has specific Vigil readings defined below.",
+          "type": "boolean",
+          "default": false
+        },
+        "readings": {
+          "description": "The set of readings for the main Mass (Mass of the Day). Required.",
+          "$ref": "#/$defs/readingSet"
+        },
+        "vigilReadings": {
+          "description": "The set of readings for the Vigil Mass. Only present if 'hasVigil' is true.",
+          "$ref": "#/$defs/readingSet"
+        }
+      },
+      "required": ["identifier", "name", "readings"]
+    },
+
+    "readingSet": {
+      "description": "Contains the complete set of readings for a specific Mass.",
+      "type": "object",
+      "properties": {
+        "first_reading": {
+          "description": "Array of options for the First Reading.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/readingOption" }
+        },
+        "responsorial_psalm": {
+          "description": "Array of options for the Responsorial Psalm.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/readingOption" }
+        },
+        "second_reading": {
+          "description": "Array of options for the Second Reading (often empty/null for weekdays).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/readingOption" }
+        },
+        "gospel_acclamation": {
+          "description": "Array of options for the Gospel Acclamation verse reference.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/readingOption" }
+        },
+        "gospel": {
+          "description": "Array of options for the Gospel reading.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/readingOption" }
+        }
+      },
+      "required": ["first_reading", "responsorial_psalm", "gospel_acclamation", "gospel"]
+    },
+
+    "readingOption": {
+      "description": "Represents a single reading option with its reference and optional notes.",
+      "type": "object",
+      "properties": {
+        "osis": {
+          "description": "The biblical citation in OSIS format, potentially including !Part notation (e.g., 'Gen.1.1-Gen.2.2', 'Ps.23.1!b-Ps.23.6!c', '1Cor.1.3-9').",
+          "type": "string"
+        },
+        "reference": {
+          "description": "The original biblical citation as it appears in the lectionary (e.g., 'Genesis 1:1-2:2', 'Psalm 23:1b-6c', '1 Corinthians 1:3-9').",
+          "type": "string"
+        },
+        "note": {
+          "description": "Optional clarifying note (e.g., 'short form', 'or', 'especially recommended').",
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["osis", "reference"]
+    }
+  }
+} 
