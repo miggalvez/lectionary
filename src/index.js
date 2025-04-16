@@ -458,28 +458,124 @@ async function main() {
             if (day.cycles?.weekdayCycle && ['I', 'II'].includes(day.cycles.weekdayCycle)) {
                 // Weekday
                 const cycle = day.cycles.weekdayCycle;
-                const liturgicalDay = createLiturgicalDay(day);
+                const liturgicalDay = {
+                    identifier: day.id,
+                    name: day.name,
+                    season: day.seasons?.[0] || null,
+                    week: day.calendar?.weekOfSeason || null,
+                    dayOfWeek: day.calendar?.dayOfWeek || null,
+                    date: day.date ? normalizeDate(day.date) : null,
+                    rank: day.rankName || null,
+                    hasVigil: false,
+                    readings: {
+                        first_reading: [],
+                        responsorial_psalm: [],
+                        second_reading: [],
+                        gospel_acclamation: [],
+                        gospel: []
+                    }
+                };
                 output.cycles.weekdays[cycle].push(liturgicalDay);
                 console.log(`Added weekday with ID: ${liturgicalDay.identifier}`);
                 
             } else if (day.fromCalendarId === 'properOfSaints') {
-                const liturgicalDay = createLiturgicalDay(day);
+                const liturgicalDay = {
+                    identifier: day.id,
+                    name: day.name,
+                    season: day.seasons?.[0] || null,
+                    week: day.calendar?.weekOfSeason || null,
+                    dayOfWeek: day.calendar?.dayOfWeek || null,
+                    date: day.date ? normalizeDate(day.date) : null,
+                    rank: day.rankName || null,
+                    hasVigil: false,
+                    readings: {
+                        first_reading: [],
+                        responsorial_psalm: [],
+                        second_reading: [],
+                        gospel_acclamation: [],
+                        gospel: []
+                    }
+                };
                 output.properOfSaints.push(liturgicalDay);
                 console.log(`Added proper of saints with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'commons') {
-                const liturgicalDay = createLiturgicalDay(day);
+                const liturgicalDay = {
+                    identifier: day.id,
+                    name: day.name,
+                    season: day.seasons?.[0] || null,
+                    week: day.calendar?.weekOfSeason || null,
+                    dayOfWeek: day.calendar?.dayOfWeek || null,
+                    date: day.date ? normalizeDate(day.date) : null,
+                    rank: day.rankName || null,
+                    hasVigil: false,
+                    readings: {
+                        first_reading: [],
+                        responsorial_psalm: [],
+                        second_reading: [],
+                        gospel_acclamation: [],
+                        gospel: []
+                    }
+                };
                 output.commons.push(liturgicalDay);
                 console.log(`Added common with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'ritualMasses') {
-                const liturgicalDay = createLiturgicalDay(day);
+                const liturgicalDay = {
+                    identifier: day.id,
+                    name: day.name,
+                    season: day.seasons?.[0] || null,
+                    week: day.calendar?.weekOfSeason || null,
+                    dayOfWeek: day.calendar?.dayOfWeek || null,
+                    date: day.date ? normalizeDate(day.date) : null,
+                    rank: day.rankName || null,
+                    hasVigil: false,
+                    readings: {
+                        first_reading: [],
+                        responsorial_psalm: [],
+                        second_reading: [],
+                        gospel_acclamation: [],
+                        gospel: []
+                    }
+                };
                 output.ritualMasses.push(liturgicalDay);
                 console.log(`Added ritual mass with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'votiveMasses') {
-                const liturgicalDay = createLiturgicalDay(day);
+                const liturgicalDay = {
+                    identifier: day.id,
+                    name: day.name,
+                    season: day.seasons?.[0] || null,
+                    week: day.calendar?.weekOfSeason || null,
+                    dayOfWeek: day.calendar?.dayOfWeek || null,
+                    date: day.date ? normalizeDate(day.date) : null,
+                    rank: day.rankName || null,
+                    hasVigil: false,
+                    readings: {
+                        first_reading: [],
+                        responsorial_psalm: [],
+                        second_reading: [],
+                        gospel_acclamation: [],
+                        gospel: []
+                    }
+                };
                 output.votiveMasses.push(liturgicalDay);
                 console.log(`Added votive mass with ID: ${liturgicalDay.identifier}`);
             } else if (day.fromCalendarId === 'massesForTheDead') {
-                const liturgicalDay = createLiturgicalDay(day);
+                const liturgicalDay = {
+                    identifier: day.id,
+                    name: day.name,
+                    season: day.seasons?.[0] || null,
+                    week: day.calendar?.weekOfSeason || null,
+                    dayOfWeek: day.calendar?.dayOfWeek || null,
+                    date: day.date ? normalizeDate(day.date) : null,
+                    rank: day.rankName || null,
+                    hasVigil: false,
+                    readings: {
+                        first_reading: [],
+                        responsorial_psalm: [],
+                        second_reading: [],
+                        gospel_acclamation: [],
+                        gospel: []
+                    }
+                };
                 output.massesForTheDead.push(liturgicalDay);
                 console.log(`Added mass for the dead with ID: ${liturgicalDay.identifier}`);
             }
