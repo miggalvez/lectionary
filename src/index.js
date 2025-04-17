@@ -31,13 +31,40 @@ bcv.set_options({
 });
 
 function processReference(reference) {
-    if (!reference || reference.toLowerCase() === '(no bibl. ref.)') return [];
+    if (!reference) return [];
+    
+    // Handle specific case for no biblical reference
+    if (reference.trim().toLowerCase() === '(no bibl. ref.)') {
+        return [{
+            referenceOsis: null,
+            referenceStandard: null,
+            note: 'no biblical reference'
+        }];
+    }
     
     const readingOptions = [];
     // Split by "or" first to handle alternative readings
     const options = reference.split(/\s+or\s+/i);
     
-    for (const option of options) {
+    // Find the book name from the first reference to use for any partial references
+    let bookName = '';
+    const bookMatch = options[0].match(/^(\d*\s*[A-Za-z]+)/);
+    if (bookMatch) {
+        bookName = bookMatch[1];
+    }
+    
+    for (let i = 0; i < options.length; i++) {
+        let option = options[i];
+        
+        // Fix partial references by adding book name if missing
+        // This handles cases like "Matt 1:1-25 or 1:18-25"
+        if (i > 0 && /^\d/.test(option.trim()) && bookName) {
+            option = bookName + ' ' + option;
+        }
+        
+        // Check if this is an optional reading (marked with "opt:")
+        const isOptional = option.trim().toLowerCase().startsWith('opt:');
+        
         // Extract any citation in parentheses before cleaning
         let citation = null;
         const citationMatch = option.match(/\(cited in ([^)]+)\)/i);
@@ -45,11 +72,20 @@ function processReference(reference) {
             citation = citationMatch[1]; // Store the citation text
         }
         
+        // Check for "cf." reference
+        const isCf = option.trim().toLowerCase().startsWith('cf.');
+        let cleanOption = option;
+        if (isCf) {
+            // Remove the "cf." prefix but remember it was there
+            cleanOption = option.replace(/^cf\.\s*/i, '');
+        }
+        
         // Replace "+" with "," for proper OSIS reference parsing
-        let cleanReference = option
+        let cleanReference = cleanOption
+            .replace(/^opt:\s*/i, '') // Remove "opt:" prefix
             .replace(/(\d+)\+(\d+)/g, '$1,$2') // Replace "+" between numbers with ","
             .replace(/[‒–—―]/g, '-') // Replace any kind of dash with regular hyphen
-            .replace(/\s*-\s*Vg.*|\(.*?\)/g, '') // Strip annotations like "- Vg (diff)" or "(new)"
+            .replace(/\s*-\s*Vg.*|\(new\)|\(diff\)/g, '') // Strip annotations like "- Vg", "(new)" or "(diff)"
             .replace(/\s*,\s*/g, ', ') // Normalize spaces around commas
             .replace(/(\d+)\s*:\s*(\d+)/g, '$1:$2') // Clean up spaces around colons
             .replace(/\s+/g, ' ') // Normalize multiple spaces
@@ -64,28 +100,42 @@ function processReference(reference) {
             
             if (osis) {
                 // Create the standardReference with "+" replaced with ","
-                const standardReference = option
+                const standardReference = cleanOption
+                    .replace(/^opt:\s*/i, '') // Remove "opt:" prefix
                     .replace(/(\d+)\+(\d+)/g, '$1,$2') // Replace "+" between numbers with ","
                     .replace(/[‒–—―]/g, '-') // Replace any kind of dash with regular hyphen
-                    .replace(/\s*-\s*Vg.*|\(.*?\)/g, '') // Strip annotations
+                    .replace(/\s*-\s*Vg.*|\(new\)|\(diff\)/g, '') // Strip annotations
                     .replace(/\s*,\s*/g, ', ') // Normalize spaces around commas
                     .replace(/(\d+)\s*:\s*(\d+)/g, '$1:$2') // Clean up spaces around colons
                     .replace(/\s+/g, ' ') // Normalize multiple spaces
                     .replace(/[^\x00-\x7F]/g, '-') // Replace any non-ASCII char with hyphen
                     .trim();
                 
-                // Determine if it's a short form based on original text
-                let note = null;
+                // Determine note content based on various attributes
+                let notes = [];
+                
+                // Add options for different reading types
+                if (isOptional) {
+                    notes.push('optional');
+                }
+                
+                if (isCf) {
+                    notes.push('cf.');
+                }
+                
                 if (/\(short form\)/i.test(option)) {
-                    note = 'short form';
+                    notes.push('short form');
                 } else if (options.length > 1) {
-                    note = 'alternative/option';
+                    notes.push('alternative/option');
                 }
                 
                 // Add citation information to the note if present
                 if (citation) {
-                    note = note ? `${note}; cited in ${citation}` : `cited in ${citation}`;
+                    notes.push(`cited in ${citation}`);
                 }
+                
+                // Combine all notes with semicolons
+                const note = notes.length > 0 ? notes.join('; ') : null;
                 
                 readingOptions.push({
                     referenceOsis: osis, // OSIS format as required by schema
@@ -114,64 +164,134 @@ function extractReadingsFromCSV(csvContent) {
     const readings = { A: [], B: [], C: [] }; // Initialize structure for Sunday cycles
     
     for (const record of records) {
-        const sundayDescription = record['Sunday']; // Column name from CSV
+        // Handle different CSV column names
+        const columnNames = Object.keys(record);
+        const sundayDescColumn = columnNames.find(name => name.includes('Sunday') || name.includes('Feast')) || 'Sunday';
         const firstReadingRef = record['First Reading'];
         const psalmRef = record['Responsorial Psalm'];
         const secondReadingRef = record['Second Reading'];
-        const alleluiaRef = record['Alleluia Verse'];
+        const alleluiaRef = record[columnNames.find(name => name.includes('Alleluia')) || 'Alleluia Verse'] || record['Alleluia'];
         const gospelRef = record['Gospel'];
         
-        if (!sundayDescription) continue; // Skip rows without a Sunday description
+        const sundayDescription = record[sundayDescColumn];
+        if (!sundayDescription) continue; // Skip rows without a Sunday/Feast description
         
-        // Parse Sunday description (e.g., "1st Sunday of Advent - A")
-        const descMatch = sundayDescription.match(/(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)\s+-\s+([ABC])/i);
-        if (!descMatch) {
-            console.warn(`Could not parse Sunday description: ${sundayDescription}`);
-            continue;
-        }
+        // Determine if this is a special feast or a regular Sunday
+        const isRegularSunday = /(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)\s+-\s+([ABC])/i.test(sundayDescription);
         
-        const [, weekNumberStr, seasonName, cycle] = descMatch;
-        const weekNumber = parseInt(weekNumberStr);
-        const season = seasonName.toUpperCase(); // e.g., ADVENT
-        
-        // Function to get ordinal suffix
-        function getOrdinalSuffix(num) {
-            const j = num % 10;
-            const k = num % 100;
-            if (j === 1 && k !== 11) return num + "st";
-            if (j === 2 && k !== 12) return num + "nd";
-            if (j === 3 && k !== 13) return num + "rd";
-            return num + "th";
-        }
-        
-        // Basic validation
-        if (!cycle || !['A', 'B', 'C'].includes(cycle)) {
-            console.warn(`Invalid or missing cycle in: ${sundayDescription}`);
-            continue;
-        }
-        
-        // Create object to store information about this reading
-        let readingInfo = {
-            sourceName: sundayDescription, // Keep original name for matching/debugging
-            feastName: `${getOrdinalSuffix(weekNumber)} Sunday of ${seasonName}`,
-            cycle: cycle,
-            weekNumber: weekNumber,
-            season: season,
-            dayOfWeek: 'Sunday', // Assuming all entries in this file are Sundays
-            readings: {
-                first_reading: processReference(firstReadingRef),
-                responsorial_psalm: processReference(psalmRef),
-                second_reading: processReference(secondReadingRef),
-                gospel_acclamation: processReference(alleluiaRef),
-                gospel: processReference(gospelRef)
+        if (isRegularSunday) {
+            // Handle regular Sundays (e.g., "1st Sunday of Advent - A")
+            const descMatch = sundayDescription.match(/(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)\s+-\s+([ABC])/i);
+            if (!descMatch) {
+                console.warn(`Could not parse Sunday description: ${sundayDescription}`);
+                continue;
             }
-        };
-        
-        // Add the reading data to the appropriate cycle
-        readings[cycle].push(readingInfo);
+            
+            const [, weekNumberStr, seasonName, cycle] = descMatch;
+            const weekNumber = parseInt(weekNumberStr);
+            const season = seasonName.toUpperCase(); // e.g., ADVENT
+            
+            // Basic validation
+            if (!cycle || !['A', 'B', 'C'].includes(cycle)) {
+                console.warn(`Invalid or missing cycle in: ${sundayDescription}`);
+                continue;
+            }
+            
+            // Create object to store information about this reading
+            let readingInfo = {
+                sourceName: sundayDescription, // Keep original name for matching/debugging
+                feastName: `${getOrdinalSuffix(weekNumber)} Sunday of ${seasonName}`,
+                cycle: cycle,
+                weekNumber: weekNumber,
+                season: season,
+                dayOfWeek: 'Sunday',
+                isFeast: false,
+                readings: {
+                    first_reading: processReference(firstReadingRef),
+                    responsorial_psalm: processReference(psalmRef),
+                    second_reading: processReference(secondReadingRef),
+                    gospel_acclamation: processReference(alleluiaRef),
+                    gospel: processReference(gospelRef)
+                }
+            };
+            
+            // Add the reading data to the appropriate cycle
+            readings[cycle].push(readingInfo);
+        } else {
+            // Handle special feasts and solemnities (e.g., "Christmas: At the Vigil Mass - ABC")
+            const feastMatch = sundayDescription.match(/([^-]+)\s*-\s*([ABC]+)/i);
+            if (!feastMatch) {
+                console.warn(`Could not parse feast description: ${sundayDescription}`);
+                continue;
+            }
+            
+            const [, feastName, cyclesStr] = feastMatch;
+            const cycles = cyclesStr.split('').filter(c => ['A', 'B', 'C'].includes(c));
+            
+            // Determine season based on feast name
+            let season = '';
+            let feastIdentifier = '';
+            
+            if (feastName.toLowerCase().includes('christmas')) {
+                season = 'CHRISTMAS';
+                feastIdentifier = feastName.trim().toLowerCase()
+                    .replace(/\s+/g, '_')
+                    .replace(/[:,']/g, '');
+            } else if (feastName.toLowerCase().includes('holy family')) {
+                season = 'CHRISTMAS';
+                feastIdentifier = 'holy_family';
+            } else if (feastName.toLowerCase().includes('mary, the mother of god')) {
+                season = 'CHRISTMAS';
+                feastIdentifier = 'mary_mother_of_god';
+            } else if (feastName.toLowerCase().includes('epiphany')) {
+                season = 'CHRISTMAS';
+                feastIdentifier = 'epiphany';
+            } else if (feastName.toLowerCase().includes('baptism')) {
+                season = 'ORDINARY';
+                feastIdentifier = 'baptism_of_the_lord';
+            } else {
+                season = 'SPECIAL';
+                feastIdentifier = feastName.trim().toLowerCase()
+                    .replace(/\s+/g, '_')
+                    .replace(/[:,']/g, '');
+            }
+            
+            // Create reading objects for each applicable cycle
+            for (const cycle of cycles) {
+                const readingInfo = {
+                    sourceName: sundayDescription,
+                    feastName: feastName.trim(),
+                    cycle: cycle,
+                    weekNumber: null,
+                    season: season,
+                    dayOfWeek: 'Sunday', // Most of these special feasts are on Sundays
+                    isFeast: true,
+                    feastIdentifier: feastIdentifier,
+                    readings: {
+                        first_reading: processReference(firstReadingRef),
+                        responsorial_psalm: processReference(psalmRef),
+                        second_reading: processReference(secondReadingRef),
+                        gospel_acclamation: processReference(alleluiaRef),
+                        gospel: processReference(gospelRef)
+                    }
+                };
+                
+                readings[cycle].push(readingInfo);
+            }
+        }
     }
     
     return readings;
+}
+
+// Function to get ordinal suffix
+function getOrdinalSuffix(num) {
+    const j = num % 10;
+    const k = num % 100;
+    if (j === 1 && k !== 11) return num + "st";
+    if (j === 2 && k !== 12) return num + "nd";
+    if (j === 3 && k !== 13) return num + "rd";
+    return num + "th";
 }
 
 // Helper function to find matching day definition from romcal definitions
@@ -197,6 +317,78 @@ function findMatchingDefinition(definitions, season, weekNumber) {
     }
     
     console.log('No matching definition found');
+    return null;
+}
+
+// Function to list romcal definitions matching a pattern with more detailed information
+function listRomcalFeasts(definitions, pattern) {
+    console.log(`Looking for romcal feasts matching pattern: ${pattern}`);
+    
+    const matches = Object.values(definitions).filter(def => {
+        return def.id && (
+            def.id.toLowerCase().includes(pattern.toLowerCase()) ||
+            (def.name && def.name.toLowerCase().includes(pattern.toLowerCase()))
+        );
+    });
+    
+    if (matches.length > 0) {
+        console.log(`Found ${matches.length} matching romcal definitions:`);
+        matches.forEach(match => {
+            console.log(`- ID: ${match.id}`);
+            console.log(`  Name: ${match.name}`);
+            console.log(`  Season: ${match.season || 'undefined'}`);
+            console.log(`  Rank: ${match.rank?.name || 'undefined'}`);
+            if (match.date) {
+                console.log(`  Date: ${match.date}`);
+            }
+            console.log(''); // Empty line for better readability
+        });
+    } else {
+        console.log(`No romcal definitions found matching pattern: ${pattern}`);
+    }
+    
+    return matches;
+}
+
+// Helper function to find matching feast from partial name or keywords
+function findFeastByKeywords(definitions, keywords) {
+    console.log(`Searching for feast with keywords: ${keywords.join(', ')}`);
+    
+    // Convert keywords to lowercase for case-insensitive matching
+    const lowerKeywords = keywords.map(k => k.toLowerCase());
+    
+    // Score-based matching to find the best match
+    const matches = Object.values(definitions)
+        .filter(def => def.id && def.name) // Must have both ID and name
+        .map(def => {
+            // Count how many keywords match in the ID and name
+            const idMatches = lowerKeywords.filter(k => 
+                def.id.toLowerCase().includes(k)).length;
+                
+            const nameMatches = lowerKeywords.filter(k => 
+                def.name.toLowerCase().includes(k)).length;
+                
+            // Calculate a score based on matches (name matches weighted higher)
+            const score = idMatches + (nameMatches * 2);
+            
+            return { definition: def, score };
+        })
+        .filter(item => item.score > 0) // Must match at least one keyword
+        .sort((a, b) => b.score - a.score); // Sort by score descending
+    
+    if (matches.length > 0) {
+        console.log(`Found ${matches.length} potential matches:`);
+        matches.slice(0, 3).forEach((match, idx) => {
+            console.log(`[${idx + 1}] Score: ${match.score}`);
+            console.log(`    ID: ${match.definition.id}`);
+            console.log(`    Name: ${match.definition.name}`);
+        });
+        
+        // Return the best match
+        return matches[0].definition;
+    }
+    
+    console.log('No matching feasts found');
     return null;
 }
 
@@ -234,6 +426,12 @@ async function main() {
         const definitions = await romcal.getAllDefinitions();
         console.log('Retrieved definitions for', Object.keys(definitions).length, 'liturgical days');
         
+        // Look for Holy Family feast and other important feasts
+        listRomcalFeasts(definitions, 'holy family');
+        listRomcalFeasts(definitions, 'christmas');
+        listRomcalFeasts(definitions, 'epiphany');
+        listRomcalFeasts(definitions, 'baptism');
+        
         // Process CSV files with readings
         const inputDir = path.join(__dirname, '..', 'input');
         console.log('Looking for CSV files in:', inputDir);
@@ -266,52 +464,148 @@ async function main() {
             C: allReadings.C.length
         });
         
+        // Helper function to find feast definition from romcal
+        function findFeastDefinition(definitions, feastIdentifier) {
+            console.log(`Looking for feast definition match:`, { feastIdentifier });
+            
+            // Build a mapping of common feast identifiers to romcal keys
+            const feastMappings = {
+                'christmas_at_the_vigil_mass': 'nativity',
+                'christmas_mass_during_the_night': 'nativity',
+                'christmas_mass_at_dawn': 'nativity',
+                'christmas_mass_during_the_day': 'nativity',
+                'holy_family': 'holy_family_of_jesus_mary_and_joseph',
+                'mary_mother_of_god': 'mary_mother_of_god',
+                'epiphany': 'epiphany',
+                'baptism_of_the_lord': 'baptism_of_the_lord'
+            };
+            
+            // Check if we have a direct mapping
+            const romcalKey = feastMappings[feastIdentifier];
+            if (!romcalKey) return null;
+            
+            // Find the definition by the mapped key
+            const matchingDefinitions = Object.values(definitions).filter(def => {
+                return def.id && def.id.includes(romcalKey);
+            });
+            
+            if (matchingDefinitions.length > 0) {
+                const match = matchingDefinitions[0];
+                console.log(`Found feast definition:`, {
+                    id: match.id,
+                    name: match.name
+                });
+                return match;
+            }
+            
+            console.log('No feast definition found');
+            return null;
+        }
+        
         // Add the readings to the output structure
         for (const [cycle, readings] of Object.entries(allReadings)) {
             console.log(`Processing ${readings.length} readings for cycle ${cycle}`);
             for (const reading of readings) {
-                // Find matching definition
-                const definition = findMatchingDefinition(
-                    definitions,
-                    reading.season,
-                    reading.weekNumber
-                );
-                
-                if (definition) {
-                    // Generate a unique identifier
-                    const identifier = `${reading.season.toLowerCase()}_${reading.weekNumber}_sunday_${cycle.toLowerCase()}`;
+                if (reading.isFeast) {
+                    // Handle feast days
+                    const feastDefinition = findFeastDefinition(definitions, reading.feastIdentifier);
+                    
+                    // Generate identifier for the feast
+                    const identifier = reading.feastIdentifier + '_' + cycle.toLowerCase();
+                    
+                    // Special case for Christmas masses
+                    let massType = null;
+                    if (reading.feastIdentifier.includes('christmas_')) {
+                        if (reading.feastIdentifier.includes('_vigil_')) {
+                            massType = 'Vigil Mass';
+                        } else if (reading.feastIdentifier.includes('_night')) {
+                            massType = 'Mass during the Night';
+                        } else if (reading.feastIdentifier.includes('_dawn')) {
+                            massType = 'Mass at Dawn';
+                        } else if (reading.feastIdentifier.includes('_day')) {
+                            massType = 'Mass during the Day';
+                        }
+                    }
                     
                     const liturgicalDay = {
                         identifier: identifier,
-                        name: definition.name, // Use the name from romcal definition instead of our generated name
-                        romcalKey: definition.id,
-                        season: definition.season || reading.season,
-                        week: reading.weekNumber,
-                        dayOfWeek: "Sunday",
-                        date: null, // No fixed date for movable feasts
-                        rank: definition.rank?.name || "Sunday",
-                        massType: null, // Standard Sunday mass
+                        name: reading.feastName,
+                        romcalKey: feastDefinition ? feastDefinition.id : null,
+                        season: reading.season,
+                        week: null, // Feasts don't have week numbers
+                        dayOfWeek: "Sunday", // Most feasts are on Sunday
+                        date: null, // Most of these feasts are movable
+                        rank: feastDefinition ? feastDefinition.rank?.name || "Feast" : "Feast",
+                        massType: massType,
                         readings: reading.readings
                     };
+                    
+                    // Add fixed dates for certain feasts
+                    if (reading.feastIdentifier === 'mary_mother_of_god') {
+                        liturgicalDay.date = '01-01'; // January 1
+                    }
+                    
                     output.cycles.sundays[cycle].push(liturgicalDay);
                 } else {
-                    console.warn(`Could not find matching definition for:`, {
-                        sourceName: reading.sourceName,
-                        season: reading.season,
-                        week: reading.weekNumber,
-                        cycle: cycle
-                    });
+                    // Handle regular Sundays
+                    const definition = findMatchingDefinition(
+                        definitions,
+                        reading.season,
+                        reading.weekNumber
+                    );
+                    
+                    if (definition) {
+                        // Generate a unique identifier
+                        const identifier = `${reading.season.toLowerCase()}_${reading.weekNumber}_sunday_${cycle.toLowerCase()}`;
+                        
+                        const liturgicalDay = {
+                            identifier: identifier,
+                            name: definition.name, // Use the name from romcal definition instead of our generated name
+                            romcalKey: definition.id,
+                            season: definition.season || reading.season,
+                            week: reading.weekNumber,
+                            dayOfWeek: "Sunday",
+                            date: null, // No fixed date for movable feasts
+                            rank: definition.rank?.name || "Sunday",
+                            massType: null, // Standard Sunday mass
+                            readings: reading.readings
+                        };
+                        output.cycles.sundays[cycle].push(liturgicalDay);
+                    } else {
+                        console.warn(`Could not find matching definition for:`, {
+                            sourceName: reading.sourceName,
+                            season: reading.season,
+                            week: reading.weekNumber,
+                            cycle: cycle
+                        });
+                    }
                 }
             }
         }
         
-        // Sort arrays by week number
-        function sortByWeek(a, b) {
+        // Sort arrays by date (when available) and then by week number
+        function sortLiturgicalDays(a, b) {
+            // Put fixed dates first
+            if (a.date && !b.date) return -1;
+            if (!a.date && b.date) return 1;
+            
+            // Sort by date if both have dates
+            if (a.date && b.date) {
+                return a.date.localeCompare(b.date);
+            }
+            
+            // Sort by season (Christmas before Ordinary)
+            const seasonOrder = { 'CHRISTMAS': 1, 'ORDINARY': 2, 'LENT': 3, 'EASTER': 4, 'ADVENT': 5 };
+            if (a.season !== b.season) {
+                return (seasonOrder[a.season] || 99) - (seasonOrder[b.season] || 99);
+            }
+            
+            // Finally sort by week number
             return (a.week || 0) - (b.week || 0);
         }
         
         // Sort all arrays
-        Object.values(output.cycles.sundays).forEach(arr => arr.sort(sortByWeek));
+        Object.values(output.cycles.sundays).forEach(arr => arr.sort(sortLiturgicalDays));
         
         // Save the calendar data
         fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
