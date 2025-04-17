@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "USCCB Lectionary Schema",
-  "description": "A schema for representing USCCB Lectionary readings (based on 1998 Roman Missal edition), using OSIS references and identifying specific Mass types (e.g., Vigil, Night, Day).",
+  "description": "A schema for representing USCCB Lectionary readings (based on 1998 Roman Missal edition), using both OSIS and standard references, and identifying specific Mass types (e.g., Vigil, Night, Day).",
   "type": "object",
   "properties": {
     "lectionaryTitle": {
@@ -12,7 +12,7 @@
     "schemaVersion": {
       "description": "Version of this JSON schema.",
       "type": "string",
-      "default": "1.2"
+      "default": "1.3"
     },
     "cycles": {
       "description": "Contains readings organized by liturgical cycle (Sundays A/B/C, Weekdays I/II).",
@@ -190,11 +190,15 @@
     },
 
     "readingOption": {
-      "description": "Represents a single reading option with its reference and optional notes.",
+      "description": "Represents a single reading option with its reference (in OSIS and standard formats) and optional notes.",
       "type": "object",
       "properties": {
-        "reference": {
+        "referenceOsis": {
           "description": "The biblical citation in OSIS format, potentially including !Part notation (e.g., 'Gen.1.1-Gen.2.2', 'Ps.23.1!b-Ps.23.6!c', '1Cor.1.3-9').",
+          "type": "string"
+        },
+        "referenceStandard": {
+          "description": "The biblical citation in a standard, human-readable format (e.g., 'Genesis 1:1-2:2', 'Psalm 23:1b-6c', '1 Corinthians 1:3-9').",
           "type": "string"
         },
         "note": {
@@ -202,7 +206,7 @@
           "type": ["string", "null"]
         }
       },
-      "required": ["reference"]
+      "required": ["referenceOsis", "referenceStandard"]
     }
   }
 }

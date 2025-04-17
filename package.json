@@ -10,8 +10,7 @@
   "dependencies": {
     "@romcal/calendar.general-roman": "^3.0.0-dev.98",
     "bible-passage-reference-parser": "github:openbibleinfo/Bible-Passage-Reference-Parser",
-    "cheerio": "^1.0.0-rc.12",
-    "csv-parse": "^5.5.3",
+    "csv-parse": "^5.6.0",
     "romcal": "^3.0.0-dev.98"
   }
 }
