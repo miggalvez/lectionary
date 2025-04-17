@@ -39,6 +39,13 @@ function processReference(reference) {
     const options = reference.split(/\s+or\s+/i);
     
     for (const option of options) {
+        // Extract any citation in parentheses before cleaning
+        let citation = null;
+        const citationMatch = option.match(/\(cited in ([^)]+)\)/i);
+        if (citationMatch) {
+            citation = citationMatch[1]; // Store the citation text
+        }
+        
         const cleanReference = option
             .replace(/[‒–—―]/g, '-') // Replace any kind of dash with regular hyphen
             .replace(/\s*-\s*Vg.*|\(.*?\)/g, '') // Strip annotations like "- Vg (diff)" or "(new)"
@@ -59,12 +66,17 @@ function processReference(reference) {
                 // Store the original cleaned reference as the standard format
                 const standardReference = cleanReference;
                 
-                // Determine if it's a short form based on original text
+                // Determine note content based on original text and citation
                 let note = null;
                 if (/\(short form\)/i.test(option)) {
                     note = 'short form';
                 } else if (options.length > 1) {
                     note = 'alternative/option';
+                }
+                
+                // Add citation information to the note if present
+                if (citation) {
+                    note = note ? `${note}; cited in ${citation}` : `cited in ${citation}`;
                 }
                 
                 readingOptions.push({
