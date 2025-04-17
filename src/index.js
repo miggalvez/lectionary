@@ -6,7 +6,6 @@ import { bcv_parser } from "bible-passage-reference-parser/esm/bcv_parser.js";
 import * as lang from "bible-passage-reference-parser/esm/lang/full.js";
 import { Romcal } from 'romcal';
 import { UnitedStates_En } from '@romcal/calendar.united-states';
-import { GeneralRoman_En } from '@romcal/calendar.general-roman';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
