@@ -45,13 +45,14 @@ function processReference(reference) {
             citation = citationMatch[1]; // Store the citation text
         }
         
-        const cleanReference = option
+        // Replace "+" with "," for proper OSIS reference parsing
+        let cleanReference = option
+            .replace(/(\d+)\+(\d+)/g, '$1,$2') // Replace "+" between numbers with ","
             .replace(/[‒–—―]/g, '-') // Replace any kind of dash with regular hyphen
             .replace(/\s*-\s*Vg.*|\(.*?\)/g, '') // Strip annotations like "- Vg (diff)" or "(new)"
             .replace(/\s*,\s*/g, ', ') // Normalize spaces around commas
             .replace(/(\d+)\s*:\s*(\d+)/g, '$1:$2') // Clean up spaces around colons
             .replace(/\s+/g, ' ') // Normalize multiple spaces
-            .replace(/\+/g, '+') // Keep + for verse sequences
             .replace(/[^\x00-\x7F]/g, '-') // Replace any non-ASCII char with regular hyphen
             .trim();
             
@@ -62,10 +63,18 @@ function processReference(reference) {
             const osis = parsingResult.osis();
             
             if (osis) {
-                // Store the original cleaned reference as the standard format
-                const standardReference = cleanReference;
+                // Create the standardReference with "+" replaced with ","
+                const standardReference = option
+                    .replace(/(\d+)\+(\d+)/g, '$1,$2') // Replace "+" between numbers with ","
+                    .replace(/[‒–—―]/g, '-') // Replace any kind of dash with regular hyphen
+                    .replace(/\s*-\s*Vg.*|\(.*?\)/g, '') // Strip annotations
+                    .replace(/\s*,\s*/g, ', ') // Normalize spaces around commas
+                    .replace(/(\d+)\s*:\s*(\d+)/g, '$1:$2') // Clean up spaces around colons
+                    .replace(/\s+/g, ' ') // Normalize multiple spaces
+                    .replace(/[^\x00-\x7F]/g, '-') // Replace any non-ASCII char with hyphen
+                    .trim();
                 
-                // Determine note content based on original text and citation
+                // Determine if it's a short form based on original text
                 let note = null;
                 if (/\(short form\)/i.test(option)) {
                     note = 'short form';
@@ -80,7 +89,7 @@ function processReference(reference) {
                 
                 readingOptions.push({
                     referenceOsis: osis, // OSIS format as required by schema
-                    referenceStandard: standardReference, // Original cleaned reference
+                    referenceStandard: standardReference, // Standard reference with "+" replaced with ","
                     note: note
                 });
             } else {
