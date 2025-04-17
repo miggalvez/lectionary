@@ -115,7 +115,7 @@ function processReference(reference, isGospel = false, cycle = null) {
             .replace(/\s+/g, ' ') // Normalize multiple spaces
             .replace(/[^\x00-\x7F]/g, '-') // Replace any non-ASCII char with regular hyphen
             .trim();
-            
+
         if (!cleanReference) continue;
         
         try {
@@ -261,7 +261,7 @@ function extractReadingsFromCSV(csvContent) {
                 dayOfWeek: 'Sunday',
                 isFeast: isPalmSunday, // Palm Sunday is a special feast
                 feastIdentifier: isPalmSunday ? 'palm_sunday' : null,
-                readings: {
+                        readings: {
                     first_reading: isPalmSunday && firstReadingRef === 'x' ? [] : processReference(firstReadingRef),
                     responsorial_psalm: isPalmSunday && psalmRef === 'x' ? [] : processReference(psalmRef),
                     second_reading: isPalmSunday && secondReadingRef === 'x' ? [] : processReference(secondReadingRef),
@@ -272,7 +272,7 @@ function extractReadingsFromCSV(csvContent) {
             
             // Add the reading data to the appropriate cycle
             readings[cycle].push(readingInfo);
-        } else {
+                } else {
             // Handle special feasts and solemnities (e.g., "Christmas: At the Vigil Mass - ABC")
             const feastMatch = sundayDescription.match(/([^-]+)\s*-\s*([ABC]+)/i);
             if (!feastMatch) {
@@ -465,7 +465,7 @@ async function main() {
             votiveMasses: [],
             massesForTheDead: []
         };
-        
+
         // Initialize romcal
         const romcal = new Romcal({
             scope: 'liturgical',
@@ -498,7 +498,7 @@ async function main() {
             console.error('No CSV files found in input directory');
             return;
         }
-        
+
         // Store all readings by cycle
         const allReadings = { A: [], B: [], C: [] };
         
@@ -512,13 +512,13 @@ async function main() {
                 allReadings[cycle].push(...cycleReadings);
             }
         }
-        
+
         console.log('Total readings collected:', {
             A: allReadings.A.length,
             B: allReadings.B.length,
             C: allReadings.C.length
         });
-        
+
         // Helper function to find feast definition from romcal
         function findFeastDefinition(definitions, feastIdentifier) {
             console.log(`Looking for feast definition match:`, { feastIdentifier });
@@ -630,8 +630,8 @@ async function main() {
                     } else {
                         console.warn(`Could not find matching definition for:`, {
                             sourceName: reading.sourceName,
-                            season: reading.season,
-                            week: reading.weekNumber,
+                        season: reading.season,
+                        week: reading.weekNumber,
                             cycle: cycle
                         });
                     }
@@ -659,10 +659,10 @@ async function main() {
             // Finally sort by week number
             return (a.week || 0) - (b.week || 0);
         }
-        
+
         // Sort all arrays
         Object.values(output.cycles.sundays).forEach(arr => arr.sort(sortLiturgicalDays));
-        
+
         // Save the calendar data
         fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
         console.log(`Created/Updated ${outputPath}`);
