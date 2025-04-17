@@ -5,6 +5,7 @@ import { parse } from 'csv-parse/sync'; // Replace cheerio with csv-parse
 import { bcv_parser } from "bible-passage-reference-parser/esm/bcv_parser.js";
 import * as lang from "bible-passage-reference-parser/esm/lang/full.js";
 import { Romcal } from 'romcal';
+import { UnitedStates_En } from '@romcal/calendar.united-states';
 import { GeneralRoman_En } from '@romcal/calendar.general-roman';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -113,6 +114,16 @@ function extractReadingsFromCSV(csvContent) {
         const weekNumber = parseInt(weekNumberStr);
         const season = seasonName.toUpperCase(); // e.g., ADVENT
         
+        // Function to get ordinal suffix
+        function getOrdinalSuffix(num) {
+            const j = num % 10;
+            const k = num % 100;
+            if (j === 1 && k !== 11) return num + "st";
+            if (j === 2 && k !== 12) return num + "nd";
+            if (j === 3 && k !== 13) return num + "rd";
+            return num + "th";
+        }
+        
         // Basic validation
         if (!cycle || !['A', 'B', 'C'].includes(cycle)) {
             console.warn(`Invalid or missing cycle in: ${sundayDescription}`);
@@ -122,7 +133,7 @@ function extractReadingsFromCSV(csvContent) {
         // Create object to store information about this reading
         let readingInfo = {
             sourceName: sundayDescription, // Keep original name for matching/debugging
-            feastName: `${weekNumberStr} Sunday of ${seasonName}`,
+            feastName: `${getOrdinalSuffix(weekNumber)} Sunday of ${seasonName}`,
             cycle: cycle,
             weekNumber: weekNumber,
             season: season,
@@ -143,83 +154,29 @@ function extractReadingsFromCSV(csvContent) {
     return readings;
 }
 
-// Helper function to find matching romcal day
-function findMatchingRomcalDay(romcalCalendar, season, weekNumber, cycle) {
-    console.log(`Looking for romcal match:`, { season, weekNumber, cycle });
+// Helper function to find matching day definition from romcal definitions
+function findMatchingDefinition(definitions, season, weekNumber) {
+    console.log(`Looking for definition match:`, { season, weekNumber });
     
-    // Debug: Print a few romcal days to see their structure
-    const sampleDays = Object.entries(romcalCalendar).slice(0, 5);
-    for (const [date, days] of sampleDays) {
-        const day = days[0];
-        console.log(`Sample romcal day:`, {
-            date,
-            id: day.id,
-            name: day.name,
-            season: day.seasons?.[0],
-            week: day.calendar?.weekOfSeason,
-            dayOfWeek: day.calendar?.dayOfWeek,
-            cycle: day.cycles?.sundayCycle
+    // Filter definitions for the specific season and week
+    const matchingDefinitions = Object.values(definitions).filter(def => {
+        // Check if this is a Sunday in the correct season and week
+        return def.id && 
+               def.id.includes('_sunday') && 
+               def.id.includes(`${season.toLowerCase()}_${weekNumber}_`) && 
+               !def.id.includes('ord_'); // Avoid matching Ordinary Time if looking for another season
+    });
+    
+    if (matchingDefinitions.length > 0) {
+        const match = matchingDefinitions[0];
+        console.log(`Found matching definition:`, {
+            id: match.id,
+            name: match.name
         });
+        return match;
     }
     
-    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
-        const day = days[0]; // Get the primary liturgical day
-        
-        if (!day.calendar || !day.seasons || !day.cycles) {
-            continue;
-        }
-        
-        // Check if this is a Sunday (romcal uses 0 for Sunday)
-        if (day.calendar.dayOfWeek === 0) {
-            // Check if the season and week match
-            const romcalSeason = day.seasons[0];
-            const romcalWeek = day.calendar.weekOfSeason;
-            const romcalCycle = day.cycles.sundayCycle;
-            
-            // Debug specific case
-            if (romcalSeason && romcalSeason.includes("ADVENT")) {
-                console.log(`Found Advent day:`, {
-                    date: romcalDate,
-                    id: day.id,
-                    season: romcalSeason,
-                    week: romcalWeek,
-                    cycle: romcalCycle
-                });
-            }
-            
-            // More flexible matching - case insensitive season comparison
-            if (romcalSeason && season && 
-                romcalSeason.toUpperCase().includes(season.toUpperCase()) &&
-                romcalWeek === weekNumber &&
-                romcalCycle === cycle) {
-                console.log(`Found match! ID: ${day.id}`);
-                return day;
-            }
-        }
-    }
-    
-    // If no exact match, try with just the season and week
-    for (const [romcalDate, days] of Object.entries(romcalCalendar)) {
-        const day = days[0];
-        
-        if (!day.calendar || !day.seasons) {
-            continue;
-        }
-        
-        if (day.calendar.dayOfWeek === 0) { // Sunday
-            const romcalSeason = day.seasons[0];
-            const romcalWeek = day.calendar.weekOfSeason;
-            
-            if (romcalSeason && season &&
-                romcalSeason.toUpperCase().includes(season.toUpperCase()) &&
-                romcalWeek === weekNumber) {
-                console.log(`Found partial match by season and week! ID: ${day.id}`);
-                return day;
-            }
-        }
-    }
-    
-    console.log('No match found');
+    console.log('No matching definition found');
     return null;
 }
 
@@ -242,20 +199,20 @@ async function main() {
             massesForTheDead: []
         };
         
-        // Initialize romcal first
+        // Initialize romcal
         const romcal = new Romcal({
             scope: 'liturgical',
             locale: 'en',
-            localizedCalendar: GeneralRoman_En,
+            localizedCalendar: UnitedStates_En,
             epiphanyOnSunday: true,
             corpusChristiOnSunday: true,
             ascensionOnSunday: false,
         });
         
-        // Generate calendar for a fixed year (2025)
-        console.log('Generating liturgical calendar...');
-        const calendar = await romcal.generateCalendar(2025);
-        console.log('Romcal calendar generated with', Object.keys(calendar).length, 'days');
+        // Get all liturgical day definitions (instead of generating a specific year's calendar)
+        console.log('Getting liturgical day definitions...');
+        const definitions = await romcal.getAllDefinitions();
+        console.log('Retrieved definitions for', Object.keys(definitions).length, 'liturgical days');
         
         // Process CSV files with readings
         const inputDir = path.join(__dirname, '..', 'input');
@@ -293,33 +250,32 @@ async function main() {
         for (const [cycle, readings] of Object.entries(allReadings)) {
             console.log(`Processing ${readings.length} readings for cycle ${cycle}`);
             for (const reading of readings) {
-                // Find matching romcal day
-                const romcalDay = findMatchingRomcalDay(
-                    calendar,
+                // Find matching definition
+                const definition = findMatchingDefinition(
+                    definitions,
                     reading.season,
-                    reading.weekNumber,
-                    cycle
+                    reading.weekNumber
                 );
                 
-                if (romcalDay) {
+                if (definition) {
                     // Generate a unique identifier
                     const identifier = `${reading.season.toLowerCase()}_${reading.weekNumber}_sunday_${cycle.toLowerCase()}`;
                     
                     const liturgicalDay = {
                         identifier: identifier,
-                        name: reading.feastName,
-                        romcalKey: romcalDay.id,
-                        season: romcalDay.seasons?.[0] || reading.season,
-                        week: romcalDay.calendar?.weekOfSeason || reading.weekNumber,
+                        name: definition.name, // Use the name from romcal definition instead of our generated name
+                        romcalKey: definition.id,
+                        season: definition.season || reading.season,
+                        week: reading.weekNumber,
                         dayOfWeek: "Sunday",
-                        date: romcalDay.date ? normalizeDate(romcalDay.date) : null,
-                        rank: "Sunday",
+                        date: null, // No fixed date for movable feasts
+                        rank: definition.rank?.name || "Sunday",
                         massType: null, // Standard Sunday mass
                         readings: reading.readings
                     };
                     output.cycles.sundays[cycle].push(liturgicalDay);
                 } else {
-                    console.warn(`Could not find matching romcal day for:`, {
+                    console.warn(`Could not find matching definition for:`, {
                         sourceName: reading.sourceName,
                         season: reading.season,
                         week: reading.weekNumber,
