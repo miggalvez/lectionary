@@ -30,7 +30,7 @@ bcv.set_options({
     "split_sequence_chars": "+," // Define characters that split sequences
 });
 
-function processReference(reference) {
+function processReference(reference, isGospel = false, cycle = null) {
     if (!reference) return [];
     
     // Handle specific case for no biblical reference
@@ -42,7 +42,31 @@ function processReference(reference) {
         }];
     }
     
+    // Special case for Palm Sunday with multiple cycle options
+    if (reference.includes('A:') && reference.includes('B:') && reference.includes('C:')) {
+        // This is a Palm Sunday Gospel with options for each cycle
+        const cycleMatch = reference.match(new RegExp(`${cycle}:\\s*([^\\n]+)(?:\\n|$)`));
+        if (cycleMatch) {
+            // Process just the reference for this specific cycle
+            return processReference(cycleMatch[1], isGospel);
+        }
+        
+        return []; // No matching cycle found
+    }
+    
     const readingOptions = [];
+    
+    // Handle Gospel titles: "Reference – Title"
+    let gospelTitle = null;
+    if (isGospel && reference.includes('–')) {
+        const parts = reference.split('–').map(p => p.trim());
+        reference = parts[0];
+        gospelTitle = parts[1];
+    }
+    
+    // Remove (diff) and (new) annotations entirely from the reference
+    reference = reference.replace(/\s*\(diff\)|\s*\(new\)/g, '');
+    
     // Split by "or" first to handle alternative readings
     const options = reference.split(/\s+or\s+/i);
     
@@ -134,6 +158,11 @@ function processReference(reference) {
                     notes.push(`cited in ${citation}`);
                 }
                 
+                // Add Gospel title if present
+                if (gospelTitle) {
+                    notes.push(gospelTitle);
+                }
+                
                 // Combine all notes with semicolons
                 const note = notes.length > 0 ? notes.join('; ') : null;
                 
@@ -170,26 +199,44 @@ function extractReadingsFromCSV(csvContent) {
         const firstReadingRef = record['First Reading'];
         const psalmRef = record['Responsorial Psalm'];
         const secondReadingRef = record['Second Reading'];
-        const alleluiaRef = record[columnNames.find(name => name.includes('Alleluia')) || 'Alleluia Verse'] || record['Alleluia'];
+        
+        // Check for different variations of the Gospel Acclamation column
+        const alleluiaRef = record[columnNames.find(name => 
+            name.includes('Alleluia') || 
+            name.includes('Verse before') ||
+            name.includes('Gospel Acclamation')
+        )] || record['Verse before the Gospel'] || record['Alleluia'] || record['Alleluia Verse'];
+        
         const gospelRef = record['Gospel'];
         
         const sundayDescription = record[sundayDescColumn];
         if (!sundayDescription) continue; // Skip rows without a Sunday/Feast description
         
-        // Determine if this is a special feast or a regular Sunday
-        const isRegularSunday = /(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)\s+-\s+([ABC])/i.test(sundayDescription);
+        // Check if this is Palm Sunday (special case)
+        const isPalmSunday = /palm\s+sunday/i.test(sundayDescription);
         
-        if (isRegularSunday) {
-            // Handle regular Sundays (e.g., "1st Sunday of Advent - A")
-            const descMatch = sundayDescription.match(/(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)\s+-\s+([ABC])/i);
+        // Determine if this is a special feast or a regular Sunday
+        const isRegularSunday = /(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)\s+[–-]\s+([ABC])/i.test(sundayDescription);
+        
+        if (isRegularSunday || isPalmSunday) {
+            // Handle regular Sundays and Palm Sunday
+            const descMatch = sundayDescription.match(/(?:(\d+)(?:st|nd|rd|th)\s+Sunday\s+of\s+(\w+)|(.+?))\s+[–-]\s+([ABC])/i);
             if (!descMatch) {
                 console.warn(`Could not parse Sunday description: ${sundayDescription}`);
                 continue;
             }
             
-            const [, weekNumberStr, seasonName, cycle] = descMatch;
-            const weekNumber = parseInt(weekNumberStr);
-            const season = seasonName.toUpperCase(); // e.g., ADVENT
+            const cycle = descMatch[4]; // The cycle is always in the last capture group
+            let weekNumber = null;
+            let seasonName = '';
+            
+            if (isPalmSunday) {
+                weekNumber = 6; // Palm Sunday is considered the 6th Sunday of Lent
+                seasonName = 'LENT';
+            } else {
+                weekNumber = parseInt(descMatch[1]);
+                seasonName = descMatch[2].toUpperCase(); // e.g., ADVENT
+            }
             
             // Basic validation
             if (!cycle || !['A', 'B', 'C'].includes(cycle)) {
@@ -198,20 +245,28 @@ function extractReadingsFromCSV(csvContent) {
             }
             
             // Create object to store information about this reading
+            let feastName = '';
+            if (isPalmSunday) {
+                feastName = 'Palm Sunday of the Passion of the Lord';
+            } else {
+                feastName = `${getOrdinalSuffix(weekNumber)} Sunday of ${seasonName}`;
+            }
+            
             let readingInfo = {
                 sourceName: sundayDescription, // Keep original name for matching/debugging
-                feastName: `${getOrdinalSuffix(weekNumber)} Sunday of ${seasonName}`,
+                feastName: feastName,
                 cycle: cycle,
                 weekNumber: weekNumber,
-                season: season,
+                season: seasonName,
                 dayOfWeek: 'Sunday',
-                isFeast: false,
+                isFeast: isPalmSunday, // Palm Sunday is a special feast
+                feastIdentifier: isPalmSunday ? 'palm_sunday' : null,
                 readings: {
-                    first_reading: processReference(firstReadingRef),
-                    responsorial_psalm: processReference(psalmRef),
-                    second_reading: processReference(secondReadingRef),
-                    gospel_acclamation: processReference(alleluiaRef),
-                    gospel: processReference(gospelRef)
+                    first_reading: isPalmSunday && firstReadingRef === 'x' ? [] : processReference(firstReadingRef),
+                    responsorial_psalm: isPalmSunday && psalmRef === 'x' ? [] : processReference(psalmRef),
+                    second_reading: isPalmSunday && secondReadingRef === 'x' ? [] : processReference(secondReadingRef),
+                    gospel_acclamation: isPalmSunday && alleluiaRef === 'x' ? [] : processReference(alleluiaRef),
+                    gospel: processReference(gospelRef, true, cycle)
                 }
             };
             
@@ -272,7 +327,7 @@ function extractReadingsFromCSV(csvContent) {
                         responsorial_psalm: processReference(psalmRef),
                         second_reading: processReference(secondReadingRef),
                         gospel_acclamation: processReference(alleluiaRef),
-                        gospel: processReference(gospelRef)
+                        gospel: processReference(gospelRef, true, cycle)
                     }
                 };
                 
@@ -477,7 +532,8 @@ async function main() {
                 'holy_family': 'holy_family_of_jesus_mary_and_joseph',
                 'mary_mother_of_god': 'mary_mother_of_god',
                 'epiphany': 'epiphany',
-                'baptism_of_the_lord': 'baptism_of_the_lord'
+                'baptism_of_the_lord': 'baptism_of_the_lord',
+                'palm_sunday': 'palm_sunday_of_the_passion_of_the_lord'
             };
             
             // Check if we have a direct mapping
